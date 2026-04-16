@@ -1,0 +1,4 @@
+# ToolBox core dependencies
+# Plugin-specific packages are installed automatically when a plugin is installed via the Shop.
+
+PyQt6>=6.6.0
