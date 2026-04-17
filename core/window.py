@@ -131,7 +131,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 580)
         self.setStyleSheet(STYLESHEET)
 
-        for _icon_file in ("icon.ico", "icon.png"):
+        for _icon_file in ("ToolBox.ico", "icon.ico", "icon.png"):
             _p = os.path.join(_ASSETS, _icon_file)
             if os.path.exists(_p):
                 self.setWindowIcon(QIcon(_p))

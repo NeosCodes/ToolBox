@@ -52,7 +52,7 @@ def main():
     app.setApplicationName("ToolBox")
     app.setApplicationVersion(APP_VERSION)
 
-    for icon_file in ("icon.ico", "icon.png"):
+    for icon_file in ("ToolBox.ico", "icon.ico", "icon.png"):
         p = _asset(icon_file)
         if os.path.exists(p):
             app.setWindowIcon(QIcon(p))

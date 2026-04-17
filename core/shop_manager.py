@@ -3,10 +3,20 @@ import json
 import hashlib
 import zipfile
 import shutil
+import ssl
 import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 from typing import Optional
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
+
+# Windows-kompatibler SSL-Kontext (umgeht fehlende Root-Zertifikate)
+_SSL_CTX = ssl.create_default_context()
+try:
+    import certifi
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    pass  # certifi optional — Standard-Kontext wird genutzt
 
 REGISTRY_URL = (
     "https://raw.githubusercontent.com/NeosCodes/ToolBox-plugins/main/registry.json"
@@ -96,18 +106,27 @@ class RegistryFetcher(QThread):
                 REGISTRY_URL,
                 headers={"User-Agent": "ToolBox/1.0"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10, context=_SSL_CTX) as resp:
                 data = json.loads(resp.read().decode())
             plugins = data.get("plugins", [])
             with open(CACHE_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             self.done.emit(plugins)
+        except urllib.error.HTTPError as e:
+            msg = f"HTTP {e.code} beim Laden der Registry"
+            if self._use_cache and os.path.exists(CACHE_FILE):
+                try:
+                    with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                        self.done.emit(json.load(f).get("plugins", []))
+                    return
+                except Exception:
+                    pass
+            self.error.emit(msg)
         except Exception as e:
             if self._use_cache and os.path.exists(CACHE_FILE):
                 try:
                     with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    self.done.emit(data.get("plugins", []))
+                        self.done.emit(json.load(f).get("plugins", []))
                     return
                 except Exception:
                     pass
@@ -132,17 +151,24 @@ class PluginInstaller(QThread):
         self.log.emit(f"Downloading {m['name']} v{m['version']}…", "info")
         try:
             self._download(url, tmp_zip)
+        except urllib.error.HTTPError as e:
+            self.done.emit(False, f"HTTP {e.code} — {e.reason}. Prüfe ob das GitHub Release existiert.")
+            return
+        except urllib.error.URLError as e:
+            self.done.emit(False, f"Verbindungsfehler: {e.reason}")
+            return
         except Exception as e:
-            self.done.emit(False, f"Download failed: {e}")
+            self.done.emit(False, f"Download fehlgeschlagen: {e}")
             return
         self.progress.emit(60)
 
-        if expected_sha and not expected_sha.startswith("abc") and not expected_sha.startswith("def"):
+        skip_placeholder = "FILL_IN_AFTER_BUILD"
+        if expected_sha and expected_sha != skip_placeholder:
             self.log.emit("Verifying checksum…", "info")
             actual = self._sha256(tmp_zip)
             if actual != expected_sha:
                 os.remove(tmp_zip)
-                self.done.emit(False, f"Checksum mismatch - download may be corrupted.")
+                self.done.emit(False, "Checksum stimmt nicht — Download möglicherweise beschädigt.")
                 return
         self.progress.emit(75)
 
@@ -176,7 +202,7 @@ class PluginInstaller(QThread):
 
     def _download(self, url: str, dest: str):
         req = urllib.request.Request(url, headers={"User-Agent": "ToolBox/1.0"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60, context=_SSL_CTX) as resp:
             total = int(resp.headers.get("Content-Length", 0))
             downloaded = 0
             chunk = 8192
